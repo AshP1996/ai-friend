@@ -1,0 +1,77 @@
+{
+  "system_name": "AI Friend - Advanced",
+  "version": "2.0.0",
+  "ai_models": {
+    "primary": {
+      "provider": "ollama",
+      "model": "llama2",
+      "api_url": "http://localhost:11434"
+    },
+    "fallback": {
+      "provider": "huggingface",
+      "model": "microsoft/DialoGPT-medium"
+    },
+    "cloud": {
+      "anthropic": {
+        "model": "claude-sonnet-4-20250514",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      },
+      "openai": {
+        "model": "gpt-3.5-turbo",
+        "api_key_env": "OPENAI_API_KEY"
+      }
+    }
+  },
+  "database": {
+    "path": "data/ai_friend.db",
+    "backup_enabled": true,
+    "backup_interval_hours": 24
+  },
+  "memory_tiers": {
+    "session": {"retention_days": 2, "priority": 1},
+    "sub_temporary": {"retention_days": 10, "priority": 2},
+    "temporary": {"retention_days": 30, "priority": 3},
+    "permanent": {"retention_days": -1, "priority": 4},
+    "personal": {"retention_days": -1, "priority": 5}
+  },
+  "voice": {
+    "language": "en-US",
+    "sample_rate": 16000,
+    "chunk_duration": 1,
+    "tts_rate": 150,
+    "tts_volume": 0.9
+  },
+  "performance": {
+    "max_workers": 4,
+    "response_timeout": 30,
+    "enable_caching": true,
+    "parallel_processing": true
+  },
+  "redis": {
+    "url": "redis://localhost:6379",
+    "max_connections": 50,
+    "decode_responses": true
+  },
+  "celery": {
+    "task_routes": {
+      "tasks.cleanup.*": {"queue": "cleanup"},
+      "tasks.analysis.*": {"queue": "analysis"}
+    },
+    "task_serializer": "json",
+    "result_serializer": "json",
+    "accept_content": ["json"],
+    "timezone": "UTC",
+    "enable_utc": true
+  },
+  "security": {
+    "cors_origins": ["http://localhost:3000", "http://localhost:8080"],
+    "allowed_hosts": ["*"],
+    "rate_limit_per_minute": 60
+  },
+  "logging": {
+    "level": "INFO",
+    "max_file_size_mb": 10,
+    "backup_count": 5,
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  }
+}

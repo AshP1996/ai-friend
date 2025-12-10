@@ -1,0 +1,240 @@
+"""
+Core AI Friend - FIXED with safe response handling
+"""
+
+from typing import Optional, Dict, Any
+from datetime import datetime
+import uuid
+from sqlalchemy.ext.asyncio import AsyncSession
+from database import DatabaseManager
+from database.init_db import create_database, verify_database
+from memory import MemoryManager
+from voice import AudioManager
+from .message_processor import MessageProcessor
+from .response_generator import ResponseGenerator
+from utils.logger import Logger
+from config import settings, db_config
+import asyncio
+
+class AIFriend:
+    def __init__(self):
+        self.logger = Logger("AIFriend")
+        self.db_manager = DatabaseManager()
+        self.memory_manager = MemoryManager(self.db_manager)
+        self.audio_manager = AudioManager()
+        self.message_processor = MessageProcessor(self.db_manager, self.memory_manager)
+        self.response_generator = ResponseGenerator()
+        
+        self.conversation_id = None
+        self.session_id = str(uuid.uuid4())
+        self.user_id = "default_user"
+        self.is_initialized = False
+    
+    async def initialize(self):
+        if self.is_initialized:
+            return
+        
+        try:
+            # Check if database exists, create if not
+            if not settings.database_path.exists():
+                self.logger.info("Database not found. Creating...")
+                await create_database()
+            else:
+                # Verify existing database
+                if not await verify_database():
+                    self.logger.warning("Database verification failed. Recreating...")
+                    await create_database()
+            
+            # Initialize database connection
+            db_config.initialize(settings.database_path)
+            await db_config.create_tables()
+            self.logger.info("Database initialized")
+            
+            # Initialize audio
+            audio_ok = self.audio_manager.initialize()
+            if not audio_ok:
+                self.logger.warning("Audio system not available")
+            
+            self.is_initialized = True
+            self.logger.info("AI Friend system initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Initialization error: {e}")
+            raise
+    
+    async def start_conversation(self, user_id: str = None):
+        if user_id:
+            self.user_id = user_id
+        
+        async for session in db_config.get_session():
+            self.conversation_id = await self.db_manager.create_conversation(
+                session,
+                self.user_id,
+                self.session_id
+            )
+            await session.commit()
+        
+        self.logger.info(f"Started conversation {self.conversation_id} for user {self.user_id}")
+        return self.conversation_id
+    
+    async def chat(self, user_message: str) -> Dict[str, Any]:
+        """
+        Main chat method with safe response handling
+        ALWAYS returns a valid response dict
+        """
+        if not self.conversation_id:
+            await self.start_conversation()
+        
+        start_time = datetime.now()
+        
+        # Default response in case of errors
+        default_response = {
+            'response': "I'm here! How can I help you?",
+            'emotion': {'emotion': 'neutral', 'confidence': 0.5},
+            'processing_time': 0.0,
+            'memories_used': 0
+        }
+        
+        try:
+            async for session in db_config.get_session():
+                # Process message with all agents and memory in parallel
+                try:
+                    processed = await self.message_processor.process_message(
+                        session,
+                        self.conversation_id,
+                        user_message
+                    )
+                except Exception as e:
+                    self.logger.error(f"Message processing error: {e}")
+                    processed = {
+                        'agent_results': {
+                            'emotion': {'emotion': 'neutral', 'confidence': 0.5},
+                            'context': {},
+                            'task': {}
+                        },
+                        'memories': [],
+                        'history': [],
+                        'processing_time': 0.0,
+                        'analysis': {}
+                    }
+                
+                # Generate response with context
+                context = {
+                    'emotion': processed.get('agent_results', {}).get('emotion', {}),
+                    'user_name': self.user_id,
+                    'memories': processed.get('memories', [])
+                }
+                
+                messages = processed.get('history', []) + [
+                    {'role': 'user', 'content': user_message}
+                ]
+                
+                # Generate response - this should ALWAYS return something
+                try:
+                    response_text = await self.response_generator.generate_response(messages, context)
+                    
+                    # Validate response
+                    if not response_text or not isinstance(response_text, str):
+                        self.logger.error(f"Invalid response: {response_text}")
+                        response_text = "I'm here! Let's chat about something."
+                    
+                except Exception as e:
+                    self.logger.error(f"Response generation error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    response_text = "I'm listening! Please tell me more."
+                
+                # Save assistant response
+                try:
+                    from database.models import MessageModel
+                    from config.constants import MessageType
+                    
+                    emotion_data = processed.get('agent_results', {}).get('emotion', {})
+                    emotion = emotion_data.get('emotion', 'neutral') if isinstance(emotion_data, dict) else 'neutral'
+                    
+                    response_msg = MessageModel(
+                        id=None,
+                        conversation_id=self.conversation_id,
+                        role=MessageType.ASSISTANT.value,
+                        content=response_text,
+                        emotion=emotion,
+                        timestamp=datetime.now(),
+                        processing_time=(datetime.now() - start_time).total_seconds(),
+                        memory_tier=None,
+                        importance_score=0.7
+                    )
+                    
+                    await self.db_manager.save_message(session, response_msg)
+                    await session.commit()
+                except Exception as e:
+                    self.logger.error(f"Failed to save message: {e}")
+            
+            # Build safe response
+            processing_time = (datetime.now() - start_time).total_seconds()
+            emotion_data = processed.get('agent_results', {}).get('emotion', {})
+            
+            return {
+                'response': response_text,
+                'emotion': emotion_data if isinstance(emotion_data, dict) else {'emotion': 'neutral'},
+                'processing_time': processing_time,
+                'memories_used': len(processed.get('memories', []))
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Chat error: {e}")
+            import traceback
+            traceback.print_exc()
+            return default_response
+    
+    async def voice_chat(self, listen_timeout: int = 5) -> Optional[Dict[str, Any]]:
+        """Voice chat with safe error handling"""
+        try:
+            # Listen for user input
+            user_message = await self.audio_manager.listen(timeout=listen_timeout)
+            
+            if not user_message:
+                return None
+            
+            # Process and respond
+            result = await self.chat(user_message)
+            
+            # Speak response
+            try:
+                response_text = result.get('response', 'I heard you!')
+                await self.audio_manager.speak(response_text)
+            except Exception as e:
+                self.logger.error(f"TTS error: {e}")
+            
+            return result
+        except Exception as e:
+            self.logger.error(f"Voice chat error: {e}")
+            return None
+    
+    async def get_conversation_summary(self) -> Dict[str, Any]:
+        """Get conversation statistics"""
+        if not self.conversation_id:
+            return {
+                'conversation_id': None,
+                'session_id': self.session_id,
+                'user_id': self.user_id,
+                'stats': {'message_count': 0, 'avg_processing_time': 0}
+            }
+        
+        try:
+            async for session in db_config.get_session():
+                from database.queries import Queries
+                stats = await Queries.get_conversation_stats(session, self.conversation_id)
+                
+                return {
+                    'conversation_id': self.conversation_id,
+                    'session_id': self.session_id,
+                    'user_id': self.user_id,
+                    'stats': stats
+                }
+        except Exception as e:
+            self.logger.error(f"Summary error: {e}")
+            return {
+                'conversation_id': self.conversation_id,
+                'session_id': self.session_id,
+                'user_id': self.user_id,
+                'stats': {'message_count': 0, 'avg_processing_time': 0}
+            }

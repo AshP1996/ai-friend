@@ -1,0 +1,2 @@
+venv_run:
+	python main.py
