@@ -20,18 +20,47 @@ class DatabaseManager:
         return conv.id
     
     async def save_message(self, session: AsyncSession, msg: MessageModel) -> int:
-        message = Message(**msg.__dict__)
-        session.add(message)
+        db_msg = Message(
+            conversation_id=msg.conversation_id,
+            role=msg.role.value if hasattr(msg.role, "value") else msg.role,
+            content=msg.content,
+            emotion=msg.emotion.value if hasattr(msg.emotion, "value") else msg.emotion,
+            confidence=msg.confidence,
+            model=msg.model_used,
+            tokens_used=msg.tokens_used,
+            processing_time=msg.processing_time,
+            timestamp=msg.timestamp,
+        )
+
+        session.add(db_msg)
         await session.commit()
-        await session.refresh(message)
-        return message.id
+        await session.refresh(db_msg)
+
+        return db_msg.id
+
+
     
     async def save_memory(self, session: AsyncSession, mem: MemoryModel) -> int:
-        memory = Memory(**mem.__dict__)
-        session.add(memory)
+        db_mem = Memory(
+            conversation_id=mem.conversation_id,
+            tier=mem.tier.value if hasattr(mem.tier, "value") else mem.tier,
+            content=mem.content,
+            source=mem.source,
+            embedding=mem.embedding,
+            importance=mem.importance,
+            confidence=mem.confidence,
+            created_at=mem.created_at,
+            last_accessed=mem.last_accessed,
+            expires_at=mem.expires_at,
+        )
+
+        session.add(db_mem)
         await session.commit()
-        await session.refresh(memory)
-        return memory.id
+        await session.refresh(db_mem)
+
+        return db_mem.id
+
+
     
     async def get_recent_messages(self, session: AsyncSession, conversation_id: int, limit: int = 10) -> List[Message]:
         result = await session.execute(

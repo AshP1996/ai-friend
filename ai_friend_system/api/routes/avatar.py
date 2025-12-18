@@ -5,7 +5,9 @@
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import Dict, Optional
-from api.routes.auth import get_current_user
+# from api.routes.auth import get_current_user
+from .user import get_anonymous_user as get_current_user
+
 
 router = APIRouter()
 

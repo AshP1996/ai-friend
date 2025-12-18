@@ -3,7 +3,8 @@ Analytics and insights dashboard
 """
 
 from fastapi import APIRouter, Depends
-from api.routes.auth import get_current_user
+# from api.routes.auth import get_current_user
+from .user import get_anonymous_user as get_current_user
 from database import DatabaseManager
 from datetime import datetime, timedelta
 from typing import Dict, List

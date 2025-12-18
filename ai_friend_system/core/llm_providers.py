@@ -4,39 +4,109 @@ from typing import Optional, List, Dict, Any
 from utils.logger import Logger
 from config import settings
 
-class OllamaProvider:
-    '''Free local LLM using Ollama - No API key needed!'''
+# class OllamaProvider:
+#     '''Free local LLM using Ollama - No API key needed!'''
     
+#     def __init__(self):
+#         self.logger = Logger("Ollama")
+#         self.api_url = settings.get('ai_models.primary.api_url', 'http://localhost:11434')
+#         self.model = settings.get('ai_models.primary.model', 'llama2')
+#         self.available = False
+#         self._check_availability()
+    
+#     def _check_availability(self):            
+#         '''Check if Ollama is running'''
+#         try:
+#             response = requests.get(f"{self.api_url}/api/tags", timeout=2)
+#             if response.status_code == 200:
+#                 self.available = True
+#                 self.logger.info("Ollama is available")
+#             else:
+#                 self.logger.warning("Ollama is not responding")
+#         except Exception as e:
+#             self.logger.warning(f"Ollama not available: {e}")
+#             self.available = False
+    
+#     async def generate(self, messages: List[Dict], system_prompt: str) -> Optional[str]:
+#         '''Generate response using Ollama'''
+#         if not self.available:
+#             return None
+        
+#         try:
+#             # Convert messages to prompt
+#             prompt = self._build_prompt(messages, system_prompt)
+            
+#             # Call Ollama API
+#             response = await asyncio.to_thread(
+#                 requests.post,
+#                 f"{self.api_url}/api/generate",
+#                 json={
+#                     "model": self.model,
+#                     "prompt": prompt,
+#                     "stream": False
+#                 },
+#                 timeout=30
+#             )
+            
+#             if response.status_code == 200:
+#                 result = response.json()
+#                 return result.get('response', '').strip()
+#             else:
+#                 self.logger.error(f"Ollama error: {response.status_code}")
+#                 return None
+                
+#         except Exception as e:
+#             self.logger.error(f"Ollama generation error: {e}")
+#             return None
+    
+#     def _build_prompt(self, messages: List[Dict], system_prompt: str) -> str:
+#         '''Build prompt from messages'''
+#         prompt = f"System: {system_prompt}\\n\\n"
+        
+#         for msg in messages:
+#             role = msg.get('role', 'user')
+#             content = msg.get('content', '')
+#             prompt += f"{role.capitalize()}: {content}\\n"
+        
+#         prompt += "Assistant:"
+#         return prompt
+
+class OllamaProvider:
+    '''Free local LLM using Ollama (phi)'''
+
     def __init__(self):
         self.logger = Logger("Ollama")
-        self.api_url = settings.get('ai_models.primary.api_url', 'http://localhost:11434')
-        self.model = settings.get('ai_models.primary.model', 'llama2')
+        self.api_url = settings.get(
+            'ai_models.primary.api_url',
+            'http://localhost:11434'
+        )
+        self.model = settings.get(
+            'ai_models.primary.model',
+            'phi:latest'   # ✅ EXACT name
+        )
         self.available = False
         self._check_availability()
-    
+
     def _check_availability(self):
-        '''Check if Ollama is running'''
         try:
             response = requests.get(f"{self.api_url}/api/tags", timeout=2)
             if response.status_code == 200:
                 self.available = True
-                self.logger.info("Ollama is available")
+                self.logger.info("Ollama server reachable")
             else:
-                self.logger.warning("Ollama is not responding")
+                self.available = False
+                self.logger.warning("Ollama server not responding")
         except Exception as e:
-            self.logger.warning(f"Ollama not available: {e}")
             self.available = False
-    
-    async def generate(self, messages: List[Dict], system_prompt: str) -> Optional[str]:
-        '''Generate response using Ollama'''
+            self.logger.warning(f"Ollama not available: {e}")
+
+    async def generate(self, messages, system_prompt):
         if not self.available:
             return None
-        
+
         try:
-            # Convert messages to prompt
             prompt = self._build_prompt(messages, system_prompt)
-            
-            # Call Ollama API
+
             response = await asyncio.to_thread(
                 requests.post,
                 f"{self.api_url}/api/generate",
@@ -45,29 +115,23 @@ class OllamaProvider:
                     "prompt": prompt,
                     "stream": False
                 },
-                timeout=30
+                timeout=60
             )
-            
+
             if response.status_code == 200:
-                result = response.json()
-                return result.get('response', '').strip()
-            else:
-                self.logger.error(f"Ollama error: {response.status_code}")
-                return None
-                
-        except Exception as e:
-            self.logger.error(f"Ollama generation error: {e}")
+                return response.json().get("response", "").strip()
+
+            self.logger.error(f"Ollama HTTP {response.status_code}")
             return None
-    
-    def _build_prompt(self, messages: List[Dict], system_prompt: str) -> str:
-        '''Build prompt from messages'''
-        prompt = f"System: {system_prompt}\\n\\n"
-        
+
+        except Exception as e:
+            self.logger.error(f"Ollama error: {e}")
+            return None
+
+    def _build_prompt(self, messages, system_prompt):
+        prompt = f"System: {system_prompt}\n\n"
         for msg in messages:
-            role = msg.get('role', 'user')
-            content = msg.get('content', '')
-            prompt += f"{role.capitalize()}: {content}\\n"
-        
+            prompt += f"{msg['role'].capitalize()}: {msg['content']}\n"
         prompt += "Assistant:"
         return prompt
 

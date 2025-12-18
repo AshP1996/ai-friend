@@ -15,24 +15,26 @@ class EmotionAgent(BaseAgent):
     
     async def process(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         text = input_data.get('text', '').lower()
-        
+
         emotion_scores = {}
+
         for emotion, keywords in self.emotion_keywords.items():
-            score = sum(1 for kw in keywords if kw in text)
-            if score > 0:
+            score = sum(
+                1 for kw in keywords
+                if re.search(rf'\b{re.escape(kw)}\b', text)
+            )
+            if score:
                 emotion_scores[emotion.value] = score
-        
-        # Detect exclamation marks and caps
-        if '!' in text or text.isupper():
+
+        if '!' in text:
             emotion_scores[EmotionType.EXCITED.value] = emotion_scores.get(EmotionType.EXCITED.value, 0) + 1
-        
-        if '?' in text and len(text.split()) < 10:
-            emotion_scores[EmotionType.CONFUSED.value] = emotion_scores.get(EmotionType.CONFUSED.value, 0) + 0.5
-        
-        detected_emotion = max(emotion_scores.items(), key=lambda x: x[1])[0] if emotion_scores else EmotionType.NEUTRAL.value
-        
+
+        detected = max(emotion_scores, key=emotion_scores.get) if emotion_scores else EmotionType.NEUTRAL.value
+
+        total = sum(emotion_scores.values()) or 1
+
         return {
-            'emotion': detected_emotion,
-            'confidence': emotion_scores.get(detected_emotion, 0) / 10,
+            'emotion': detected,
+            'confidence': round(emotion_scores.get(detected, 0) / total, 2),
             'all_emotions': emotion_scores
         }

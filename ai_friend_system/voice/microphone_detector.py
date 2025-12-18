@@ -55,44 +55,38 @@ class MicrophoneDetector:
         self.logger = Logger("MicrophoneDetector")
         self.available_devices = []
         self.default_device = None
-    
+
     def detect_microphones(self) -> List[Dict]:
+        # 🚀 SPEED FIX: cache result
+        if self.available_devices:
+            return self.available_devices
+
         try:
             devices = sd.query_devices()
             self.available_devices = []
 
             for idx, d in enumerate(devices):
-                # Skip devices with no input channels
                 if d.get("max_input_channels", 0) <= 0:
                     continue
 
                 name = d.get("name", "").lower()
-
-                # Skip monitor/loopback devices (they are not mics)
                 if "monitor" in name:
                     continue
 
-                # Store real microphone devices
                 self.available_devices.append({
                     "index": idx,
                     "name": d.get("name", ""),
                     "channels": d.get("max_input_channels", 1),
-                    "sample_rate": 44100,  # Force stable rate for Ubuntu mics
+                    "sample_rate": 44100,
                 })
 
-            # Auto-select best microphone
             self.default_device = self._select_best_microphone()
-
-            if self.default_device:
-                self.logger.info(f"Default microphone: {self.default_device['name']} (index {self.default_device['index']})")
-            else:
-                self.logger.warning("No usable microphone found.")
-
             return self.available_devices
 
         except Exception as e:
-            self.logger.error(f"Error detecting microphones: {e}")
+            self.logger.error(f"Mic detection error: {e}")
             return []
+
 
     def _select_best_microphone(self) -> Optional[Dict]:
         """
@@ -123,3 +117,10 @@ class MicrophoneDetector:
                 self.logger.info(f"Manually set default mic: {device['name']}")
                 return True
         return False
+    
+    def refresh_devices(self):
+        self.available_devices = []
+        self.default_device = None
+        return self.detect_microphones()
+
+

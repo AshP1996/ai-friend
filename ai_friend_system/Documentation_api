@@ -1,0 +1,320 @@
+🚀 AI Friend API Documentation
+
+Base URL (Development):
+
+http://127.0.0.1:8000/api
+
+
+Authentication:
+All protected endpoints require JWT token in the header:
+
+Authorization: Bearer <your_jwt_token>
+
+📦 Modules Overview
+Module	Description
+auth	JWT-based authentication
+agents	Agent status & health checks
+analytics	Analytics and insights dashboard
+avatar	3D avatar expression and animation
+chat	AI chat endpoints with memory & emotion analysis
+memory	Semantic memory storage & retrieval
+persona	AI persona customization
+profile	User profile management
+voice	Speech-to-text, text-to-speech, and real-time voice streaming
+🔐 Authentication
+Generate Token
+
+POST /auth/login
+
+{
+  "username": "string",
+  "password": "string"
+}
+
+
+Response
+
+{
+  "access_token": "jwt_token_here",
+  "token_type": "bearer"
+}
+
+🤖 Agents
+Get Agents Status
+
+GET /agents/status
+Response
+
+{
+  "agents": [
+    {"type": "emotion", "status": "active"},
+    {"type": "context", "status": "active"},
+    {"type": "task", "status": "active"}
+  ]
+}
+
+📊 Analytics
+Analytics Overview
+
+GET /analytics/overview
+Response
+
+{
+  "total_interactions": 150,
+  "avg_session_length": 15.5,
+  "most_active_time": "18:00-20:00",
+  "emotion_distribution": {"happy":45,"neutral":30,"sad":15,"excited":10},
+  "top_topics": [{"topic":"work","count":35},{"topic":"hobbies","count":28}],
+  "memory_stats": {"total_memories":89,"important_memories":23,"recent_memories":15}
+}
+
+Emotion Trends
+
+GET /analytics/emotion-trends?days=7
+Response
+
+{
+  "period": "last_7_days",
+  "trends": [
+    {"date": "2025-12-01", "happiness": 0.7, "sadness": 0.2},
+    {"date": "2025-12-02", "happiness": 0.8, "sadness": 0.1}
+  ]
+}
+
+Topic Analysis
+
+GET /analytics/topics
+Response
+
+{
+  "topics": [
+    {"name": "Career", "frequency": 45, "sentiment": 0.6, "keywords": ["work","job"]},
+    {"name": "Health", "frequency": 30, "sentiment": 0.5, "keywords": ["exercise","sleep"]}
+  ]
+}
+
+🖼 Avatar
+Set Expression
+
+POST /avatar/expression
+
+{
+  "emotion": "happy",
+  "intensity": 0.8,
+  "duration": 2.0
+}
+
+
+Response
+
+{
+  "emotion": "happy",
+  "expression_params": {"smile":0.9,"eyebrows":0.2},
+  "intensity": 0.8,
+  "duration": 2.0
+}
+
+Play Animation
+
+POST /avatar/animation
+
+{
+  "animation_type": "talking",
+  "loop": false
+}
+
+
+Response
+
+{
+  "animation": "talking",
+  "params": {"mouth_movement": true, "duration": 1.0},
+  "loop": false
+}
+
+Sync Speech Animation
+
+GET /avatar/sync-speech?text=Hello
+Response
+
+{
+  "text": "Hello",
+  "duration": 0.25,
+  "phonemes": [{"phoneme":"H","start":0.0,"end":0.1}]
+}
+
+💬 Chat
+Send Message
+
+POST /chat/send
+
+{
+  "message": "Hello AI!",
+  "context": {},
+  "save_to_memory": true
+}
+
+
+Response
+
+{
+  "response": "Hi there!",
+  "emotion": {"primary_emotion":"happy","confidence":0.9},
+  "processing_time": 0.35,
+  "memories_used": 3,
+  "session_id": "abc123"
+}
+
+Stream Chat
+
+GET /chat/stream?message=Hello
+
+Server-Sent Events (SSE) stream each word
+
+done event marks completion
+
+Chat History
+
+GET /chat/history?limit=50
+Response
+
+[{"timestamp":"2025-12-15T14:00:00","message":"Hi","response":"Hello!"}]
+
+Clear Conversation
+
+DELETE /chat/clear
+Response
+
+{"message":"Conversation cleared"}
+
+WebSocket Chat
+
+WS /chat/ws/{user_id}
+
+Bidirectional chat streaming
+
+Sends:
+
+{"response":"Hi","emotion":{"primary_emotion":"happy"},"processing_time":0.34}
+
+🧠 Memory
+Save Memory
+
+POST /memory/save
+
+{
+  "content": "Remember my birthday",
+  "category": "personal",
+  "importance": 0.9,
+  "tags": ["birthday","reminder"]
+}
+
+
+Response
+
+{"memory_id":"uuid123","message":"Memory saved"}
+
+Search Memory
+
+POST /memory/search
+
+{"query": "birthday", "limit": 5}
+
+
+Response
+
+{"memories":[{"content":"Remember my birthday"}],"count":1}
+
+Delete Memory
+
+DELETE /memory/{memory_id}
+Response
+
+{"message":"Memory deleted"}
+
+Memory Stats
+
+GET /memory/stats
+Response
+
+{"total_memories":10,"user_id":"user123"}
+
+🧑 Persona
+Get Persona
+
+GET /persona/get
+Response
+
+{"name":"Friend","personality_traits":{"friendliness":0.9}}
+
+Update Persona
+
+POST /persona/update
+
+{
+  "name": "Buddy",
+  "personality_traits":{"humor":0.8}
+}
+
+
+Response
+
+{"message":"Persona updated","config":{...}}
+
+Reset Persona
+
+POST /persona/reset
+Response
+
+{"message":"Persona reset to default","config":{...}}
+
+👤 Profile
+Get Profile
+
+GET /profile/{user_id}
+Response
+
+{"user_id":"user123","profile":{}}
+
+Update Profile
+
+PUT /profile/{user_id}
+
+{"name":"Ashish","preferences":"dark_mode"}
+
+
+Response
+
+{"message":"Profile updated","user_id":"user123"}
+
+🔊 Voice
+Speech-to-Text
+
+POST /voice/stt
+
+Form-data: file
+Response
+
+{"text":"Hello","confidence":0.95}
+
+Text-to-Speech
+
+POST /voice/tts?text=Hello&voice_id=default
+Response
+
+{"audio_url":"/audio/output.mp3","duration":3.5}
+
+Voice Streaming
+
+WS /voice/stream/{user_id}
+
+Receive JSON: {"text":"recognized audio"}
+
+Real-time voice streaming
+
+List Devices
+
+GET /voice/devices
+Response
+
+{"devices":["Microphone 1","Microphone 2"]}

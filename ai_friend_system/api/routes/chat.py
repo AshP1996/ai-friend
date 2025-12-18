@@ -1,12 +1,14 @@
 """
 Enhanced chat routes with all advanced features
 """
-import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Depends, WebSocket
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from core.session_manager import AIFriendSessions
-from api.routes.auth import get_current_user
+# from api.routes.auth import get_current_user
+from .user import get_anonymous_user as get_current_user
+
 from memory.semantic_memory import SemanticMemoryEngine
 from agents.emotion_analyzer import AdvancedEmotionAnalyzer
 from utils.logger import Logger
@@ -63,7 +65,7 @@ async def send_message(
                 request.message,
                 {
                     'emotion': emotion_analysis['primary_emotion'],
-                    'timestamp': str(datetime.now()),
+                    'timestamp': datetime.now(timezone.utc).isoformat(),
                     'importance': emotion_analysis['confidence']
                 }
             )

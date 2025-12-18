@@ -1,13 +1,15 @@
 import asyncio
 import argparse
+from core.lifecycle import SystemLifecycle
 from core import AIFriend
 from utils.logger import Logger
 
 logger = Logger("Main")
 
 async def interactive_mode():
+    await SystemLifecycle.startup()
     ai_friend = AIFriend()
-    
+    await ai_friend.initialize()
     print("=" * 60)
     print("AI FRIEND SYSTEM - Interactive Mode")
     print("=" * 60)

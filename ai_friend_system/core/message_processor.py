@@ -58,13 +58,19 @@ class MessageProcessor:
         agent_results = await self.agent_coordinator.process_parallel(agent_input)
 
         # FIX: return a full dictionary (previously missing → caused NoneType)
+# SAFETY GUARD
+        if not isinstance(agent_results, dict):
+            agent_results = {}
+
         return {
             "cleaned_text": cleaned_text,
             "analysis": text_analysis,
             "history": history,
-            "emotion": agent_results.get("emotion"),
-            "context": agent_results.get("context"),
-            "task": agent_results.get("task"),
+
+            # REQUIRED BY AIFriend
+            "agent_results": agent_results,
+            "memories": agent_results.get("memories", []),
+
             "success": agent_results.get("success", True)
         }
 
