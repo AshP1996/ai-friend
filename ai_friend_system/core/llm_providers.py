@@ -1,4 +1,5 @@
 import asyncio
+import threading
 import requests
 from typing import Optional, List, Dict, Any
 from utils.logger import Logger
@@ -89,16 +90,14 @@ class OllamaProvider:
 
     def _check_availability(self):
         try:
-            response = requests.get(f"{self.api_url}/api/tags", timeout=2)
+            response = requests.get(f"{self.api_url}/api/tags", timeout=1)  # Faster timeout
             if response.status_code == 200:
                 self.available = True
-                self.logger.info("Ollama server reachable")
+                self.logger.debug("Ollama server reachable")
             else:
                 self.available = False
-                self.logger.warning("Ollama server not responding")
-        except Exception as e:
+        except Exception:
             self.available = False
-            self.logger.warning(f"Ollama not available: {e}")
 
     async def generate(self, messages, system_prompt):
         if not self.available:
@@ -113,20 +112,24 @@ class OllamaProvider:
                 json={
                     "model": self.model,
                     "prompt": prompt,
-                    "stream": False
+                    "stream": False,
+                    "options": {
+                        "num_predict": 400,  # Increased for detailed, natural responses
+                        "temperature": 0.8,  # More creative and natural
+                        "top_p": 0.9,
+                        "repeat_penalty": 1.1  # Reduce repetition
+                    }
                 },
-                timeout=60
+                timeout=10  # Increased timeout for better responses
             )
 
             if response.status_code == 200:
                 return response.json().get("response", "").strip()
 
-            self.logger.error(f"Ollama HTTP {response.status_code}")
             return None
 
-        except Exception as e:
-            self.logger.error(f"Ollama error: {e}")
-            return None
+        except Exception:
+            return None  # Silent fail for speed
 
     def _build_prompt(self, messages, system_prompt):
         prompt = f"System: {system_prompt}\n\n"
@@ -137,26 +140,67 @@ class OllamaProvider:
 
 
 class HuggingFaceProvider:
-    '''Free Hugging Face models - No API key needed!'''
+    '''Free Hugging Face models - No API key needed!
+    
+    SHARED MODEL: Model is loaded once and shared across all instances.
+    Each instance references the shared model.
+    '''
+    _instance = None
+    _model = None
+    _tokenizer = None
+    _lock = threading.Lock()
+    _logger = Logger("HuggingFace")
+    _model_loaded = False
+    
+    def __new__(cls):
+        """Singleton pattern - only one provider instance"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialized = False
+        return cls._instance
     
     def __init__(self):
-        self.logger = Logger("HuggingFace")
-        self.model_name = settings.get('ai_models.fallback.model', 'microsoft/DialoGPT-medium')
-        self.tokenizer = None
-        self.model = None
-        self.available = False
-        self._load_model()
+        # Only initialize once
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        
+        with self.__class__._lock:
+            if hasattr(self, '_initialized') and self._initialized:
+                return
+            
+            self.logger = self.__class__._logger
+            self.model_name = settings.get('ai_models.fallback.model', 'microsoft/DialoGPT-medium')
+            self.available = False
+            
+            # Load model only once (shared across all instances)
+            if not self.__class__._model_loaded:
+                self._load_model()
+            else:
+                # Use shared model
+                self.model = self.__class__._model
+                self.tokenizer = self.__class__._tokenizer
+                self.available = True
+            
+            self._initialized = True
     
     def _load_model(self):
-        '''Load HuggingFace model'''
+        '''Load HuggingFace model (only once)'''
         try:
             from transformers import AutoTokenizer, AutoModelForCausalLM
             
-            self.logger.info(f"Loading model: {self.model_name}")
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            self.logger.info(f"Loading model: {self.model_name} (shared, one-time load)...")
+            self.__class__._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            self.__class__._model = AutoModelForCausalLM.from_pretrained(self.model_name)
+            self.__class__._tokenizer.padding_side = 'left'  # Fix for decoder-only models
+            self.__class__._model_loaded = True
+            
+            # Set instance references
+            self.tokenizer = self.__class__._tokenizer
+            self.model = self.__class__._model
             self.available = True
-            self.logger.info("HuggingFace model loaded successfully")
+            self.logger.info("✅ HuggingFace model loaded (will be shared across all instances)")
         except Exception as e:
             self.logger.error(f"Failed to load HuggingFace model: {e}")
             self.available = False
@@ -170,23 +214,67 @@ class HuggingFaceProvider:
             # Get last user message
             user_message = messages[-1].get('content', '') if messages else ''
             
-            # Encode input
-            inputs = self.tokenizer.encode(user_message + self.tokenizer.eos_token, return_tensors='pt')
+            # Ensure tokenizer padding_side is set correctly (fix warning)
+            if self.tokenizer.padding_side != 'left':
+                self.tokenizer.padding_side = 'left'
             
-            # Generate response
+            # Build full conversation context for better responses
+            conversation_text = ""
+            for msg in messages[-3:]:  # Last 3 messages for context
+                role = msg.get('role', 'user')
+                content = msg.get('content', '')
+                if role == 'user':
+                    conversation_text += f"User: {content}\n"
+                elif role == 'assistant':
+                    conversation_text += f"Assistant: {content}\n"
+            
+            # Add system prompt context
+            if system_prompt:
+                conversation_text = f"{system_prompt}\n\n{conversation_text}"
+            
+            conversation_text += "Assistant:"
+            
+            # Encode full context
+            inputs = self.tokenizer.encode(conversation_text, return_tensors='pt', max_length=512, truncation=True)
+            input_length = inputs.shape[-1]
+            
+            # Generate response with max_new_tokens for longer outputs
             outputs = await asyncio.to_thread(
                 self.model.generate,
                 inputs,
-                max_length=200,
+                max_new_tokens=150,  # Generate up to 150 new tokens (not total length)
                 pad_token_id=self.tokenizer.eos_token_id,
+                eos_token_id=self.tokenizer.eos_token_id,
                 do_sample=True,
-                top_p=0.95,
-                top_k=50
+                temperature=0.85,  # More creative and natural
+                top_p=0.9,
+                top_k=40,
+                repetition_penalty=1.15,  # Reduce repetition
+                no_repeat_ngram_size=3  # Prevent 3-gram repetition
             )
             
-            # Decode response
-            response = self.tokenizer.decode(outputs[:, inputs.shape[-1]:][0], skip_special_tokens=True)
-            return response.strip()
+            # Decode only the new tokens (response)
+            response = self.tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True)
+            response = response.strip()
+            
+            # Ensure minimum length - if too short, add more context
+            if len(response.split()) < 10:
+                self.logger.warning(f"Response too short ({len(response.split())} words), regenerating...")
+                # Try again with more aggressive parameters
+                outputs = await asyncio.to_thread(
+                    self.model.generate,
+                    inputs,
+                    max_new_tokens=200,
+                    pad_token_id=self.tokenizer.eos_token_id,
+                    do_sample=True,
+                    temperature=0.9,
+                    top_p=0.95,
+                    repetition_penalty=1.1
+                )
+                response = self.tokenizer.decode(outputs[0][input_length:], skip_special_tokens=True).strip()
+            
+            self.logger.info(f"HuggingFace generated {len(response.split())} words: {response[:100]}...")
+            return response
             
         except Exception as e:
             self.logger.error(f"HuggingFace generation error: {e}")

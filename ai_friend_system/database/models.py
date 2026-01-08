@@ -1,20 +1,7 @@
-from dataclasses import dataclass
-from datetime import datetime
-from typing import Optional, List
-from config.constants import MemoryTier, MessageType, EmotionType
-
-# @dataclass
-# class ConversationModel:
-#     id: Optional[int]
-#     session_id: str
-#     user_id: str
-#     started_at: datetime
-#     last_active: datetime
-#     is_active: bool = True
-
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
+from config.constants import MemoryTier, MessageType, EmotionType
 
 @dataclass(slots=True)
 class ConversationModel:
@@ -64,27 +51,21 @@ class MessageModel:
     processing_time: Optional[float] = None
     memory_tier: Optional[str] = None
 
+    # Training data fields
+    context_embedding: Optional[str] = None  # JSON
+    agent_outputs: Optional[str] = None     # JSON
+    memory_context: Optional[str] = None    # JSON
+    user_feedback: Optional[float] = None   # 1-5 rating
+    quality_score: Optional[float] = None
+    training_flag: bool = False
+    
+    # Voice-specific fields
+    voice_pitch: Optional[float] = None
+    voice_emotion: Optional[str] = None
+    audio_quality: Optional[float] = None
+
     timestamp: datetime = field(default_factory=datetime.utcnow)
     importance_score: float = 0.5
-
-
-# @dataclass
-# class MemoryModel:
-#     id: Optional[int]
-#     conversation_id: int
-#     tier: str
-#     content: str
-#     context: Optional[str]
-#     tags: Optional[str]
-#     created_at: datetime
-#     expires_at: Optional[datetime]
-#     access_count: int = 0
-#     importance: float = 0.5
-#     last_accessed: datetime = None
-
-from dataclasses import dataclass, field
-from typing import Optional
-from config.constants import MemoryTier
 
 @dataclass(slots=True)
 class MemoryModel:
@@ -101,9 +82,36 @@ class MemoryModel:
     embedding: Optional[str] = None  # vector (JSON / base64)
     confidence: float = 1.0
 
+    # Enhanced metadata
+    emotion_at_creation: Optional[str] = None
+    related_memories: Optional[str] = None  # JSON array
+    training_relevance: Optional[float] = None
+    verified: bool = False
+
     created_at: datetime = field(default_factory=datetime.utcnow)
     expires_at: Optional[datetime] = None
 
     access_count: int = 0
     importance: float = 0.5
     last_accessed: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass(slots=True)
+class PersonaModel:
+    id: Optional[int]
+    user_id: str
+    
+    name: str = "Friend"
+    personality_traits: Dict[str, float] = field(default_factory=lambda: {
+        "friendliness": 0.9,
+        "humor": 0.7,
+        "empathy": 0.9,
+        "formality": 0.3
+    })
+    speaking_style: str = "casual"
+    interests: List[str] = field(default_factory=lambda: ["technology", "music", "books"])
+    background_story: Optional[str] = None
+    voice_id: Optional[str] = None
+    
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)

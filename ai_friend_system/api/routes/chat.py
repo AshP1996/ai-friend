@@ -10,7 +10,7 @@ from core.session_manager import AIFriendSessions
 from .user import get_anonymous_user as get_current_user
 
 from memory.semantic_memory import SemanticMemoryEngine
-from agents.emotion_analyzer import AdvancedEmotionAnalyzer
+from agents.advanced_emotion_analyzer import AdvancedEmotionAnalyzer
 from utils.logger import Logger
 from sse_starlette.sse import EventSourceResponse
 import asyncio
@@ -40,34 +40,33 @@ async def send_message(
     request: ChatRequest,
     user_id: str = Depends(get_current_user)
 ):
-    '''Send message with full AI processing'''
+    '''Send message with full AI processing - Optimized for speed'''
     try:
         # Get user session
         session = await sessions.get_or_create(user_id)
         
-        # Analyze emotion
-        emotion_analysis = await emotion_analyzer.analyze(request.message)
+        # Run emotion analysis and memory search in parallel for speed
+        emotion_task = emotion_analyzer.analyze(request.message)
+        memory_task = semantic_memory.search_memories(user_id, request.message, n_results=3)
+        chat_task = session.chat(request.message)
         
-        # Search semantic memories
-        relevant_memories = await semantic_memory.search_memories(
-            user_id, 
-            request.message, 
-            n_results=3
+        # Wait for all in parallel
+        emotion_analysis, relevant_memories, result = await asyncio.gather(
+            emotion_task, memory_task, chat_task
         )
         
-        # Generate response
-        result = await session.chat(request.message)
-        
-        # Save to semantic memory if important
-        if request.save_to_memory and emotion_analysis['confidence'] > 0.6:
-            await semantic_memory.save_memory(
-                user_id,
-                request.message,
-                {
-                    'emotion': emotion_analysis['primary_emotion'],
-                    'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'importance': emotion_analysis['confidence']
-                }
+        # Save to semantic memory in background (non-blocking)
+        if request.save_to_memory and emotion_analysis.get('confidence', 0) > 0.6:
+            asyncio.create_task(
+                semantic_memory.save_memory(
+                    user_id,
+                    request.message,
+                    {
+                        'emotion': emotion_analysis.get('primary_emotion', 'neutral'),
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'importance': emotion_analysis.get('confidence', 0.5)
+                    }
+                )
             )
         
         return ChatResponse(
@@ -143,4 +142,18 @@ async def get_chat_history(
 async def clear_conversation(user_id: str = Depends(get_current_user)):
     '''Clear conversation and start fresh'''
     await sessions.remove(user_id)
+    # Clear cache for this user
+    from core.response_cache import response_cache
+    await response_cache.clear_user_cache(user_id)
     return {"message": "Conversation cleared"}
+
+@router.get("/performance")
+async def get_performance_stats():
+    '''Get performance statistics'''
+    from core.performance_monitor import perf_monitor
+    from core.response_cache import response_cache
+    
+    return {
+        "performance": perf_monitor.get_stats(),
+        "cache": response_cache.get_stats()
+    }

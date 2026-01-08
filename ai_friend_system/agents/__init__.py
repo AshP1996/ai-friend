@@ -3,7 +3,7 @@ from .task_agent import TaskAgent
 from .emotion_agent import EmotionAgent
 from .context_agent import ContextAgent
 from .agent_coordinator import AgentCoordinator
-from .emotion_analyzer import AdvancedEmotionAnalyzer  # NEW
+from .advanced_emotion_analyzer import AdvancedEmotionAnalyzer  # Advanced version
 
 __all__ = [
     'BaseAgent',

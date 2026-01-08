@@ -52,64 +52,90 @@
 #     def shutdown(self):
 #         self.active = False
 #         self.reset()
-from typing import Dict
+from typing import Dict, Optional
 from utils.logger import Logger
 from voice.speech_to_text import SpeechToText
 from voice.text_to_speech import TextToSpeech
+from voice.pitch_analyzer import PitchAnalyzer
 
 
 class AudioManager:
+    """
+    AudioManager uses shared singleton instances for STT/TTS to avoid loading models multiple times.
+    Each AudioManager instance gets its own recognizer state but shares the model.
+    """
     def __init__(self):
         self.logger = Logger("AudioManager")
-        self.stt = SpeechToText()
-        self.tts = TextToSpeech()
+        # Use singleton instances (models loaded once, shared)
+        self.stt = SpeechToText()  # Singleton - model shared, recognizer per instance
+        self.tts = TextToSpeech()  # Lightweight, can create new
+        self.pitch_analyzer = PitchAnalyzer()  # Lightweight
         self.active = True
         self.is_speaking = False
+        
+        # Track pitch history for emotion detection
+        self.pitch_history = []
+        self.current_pitch = None
 
-        self.logger.info("🆕 AudioManager created")
+        self.logger.debug("🆕 AudioManager created (using shared STT model)")
 
     def initialize(self):
-        self.logger.info("🎧 AudioManager initialized")
+        self.logger.debug("🎧 AudioManager initialized")
 
     # ===============================
-    # PCM STREAM → STT
+    # PCM STREAM → STT + PITCH ANALYSIS
     # ===============================
     def process_pcm(self, pcm_bytes: bytes) -> Dict:
         if not self.active:
-            self.logger.warning("⛔ Ignoring PCM: manager inactive")
-            return {"partial": None, "final": None}
+            return {"partial": None, "final": None, "pitch": None}
 
         if self.is_speaking:
-            self.logger.debug("🔇 Ignoring PCM: AI is speaking")
-            return {"partial": None, "final": None}
+            return {"partial": None, "final": None, "pitch": None}
 
-        self.logger.debug(f"🎙️ PCM received: {len(pcm_bytes)} bytes")
-        return self.stt.stream(pcm_bytes)
+        # Analyze pitch in parallel (non-blocking)
+        pitch_data = self.pitch_analyzer.analyze_pitch(pcm_bytes)
+        if pitch_data["is_speech"] and pitch_data["pitch_hz"] > 0:
+            self.current_pitch = pitch_data["pitch_hz"]
+            self.pitch_history.append(pitch_data["pitch_hz"])
+            if len(self.pitch_history) > 10:  # Keep last 10
+                self.pitch_history.pop(0)
+        
+        # Process STT
+        stt_result = self.stt.stream(pcm_bytes)
+        
+        # Add pitch data to result
+        stt_result["pitch"] = pitch_data
+        return stt_result
 
     # ===============================
-    # TEXT → SPEECH
+    # TEXT → SPEECH (with emotion)
     # ===============================
-    async def text_to_speech(self, text: str, emotion: str = "neutral") -> bytes:
+    async def text_to_speech(self, text: str, emotion: str = "neutral", 
+                            pitch_hint: Optional[float] = None) -> bytes:
         if not text:
-            self.logger.warning("⚠️ Empty TTS request")
             return b""
 
         self.is_speaking = True
-        self.logger.info(f"🗣️ TTS started | emotion={emotion}")
+        self.logger.debug(f"🗣️ TTS started | emotion={emotion}")
 
         try:
-            audio = await self.tts.generate_audio_bytes(text, emotion)
-            self.logger.info(f"🔊 TTS audio generated ({len(audio)} bytes)")
+            # Use average pitch from history if no hint provided
+            if pitch_hint is None and self.pitch_history:
+                pitch_hint = sum(self.pitch_history) / len(self.pitch_history)
+            
+            audio = await self.tts.generate_audio_bytes(text, emotion, pitch_hint)
+            self.logger.debug(f"🔊 TTS audio generated ({len(audio)} bytes)")
             return audio
         finally:
             self.is_speaking = False
-            self.logger.info("🎧 TTS finished, listening resumed")
 
     def reset(self):
-        self.logger.info("🔄 STT reset")
+        self.logger.debug("🔄 STT reset")
         self.stt.reset()
+        self.pitch_history.clear()
+        self.current_pitch = None
 
     def shutdown(self):
-        self.logger.info("🧹 AudioManager shutdown")
+        self.logger.debug("🧹 AudioManager shutdown")
         self.active = False
         self.reset()

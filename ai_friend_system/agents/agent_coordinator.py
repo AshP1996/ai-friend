@@ -62,8 +62,9 @@ class AgentCoordinator:
         self.logger = Logger("AgentCoordinator")
 
     async def process_parallel(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        # Reduced timeout for faster responses (0.8s per agent)
         tasks = [
-            asyncio.wait_for(agent.execute(input_data), timeout=1.5)
+            asyncio.wait_for(agent.execute(input_data), timeout=0.8)
             for agent in self.agents
         ]
 

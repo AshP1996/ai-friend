@@ -16,7 +16,7 @@ class SystemLifecycle:
         config.validate()
 
         log.info("🔗 Connecting Redis")
-        await connect_redis()
+        await connect_redis()  # Gracefully handles connection failure
 
         if app:
             log.info("🧪 Running startup diagnostics")

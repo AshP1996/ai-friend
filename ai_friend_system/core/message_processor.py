@@ -39,12 +39,20 @@ class MessageProcessor:
                             user_message: str) -> Dict[str, Any]:
         start_time = datetime.now()
         
-        # Clean and analyze text
-        cleaned_text = self.nlp_engine.clean_text(user_message)
-        text_analysis = self.nlp_engine.analyze_text(cleaned_text)
+        # Optimized: Run text cleaning and history retrieval in parallel
+        cleaned_text_task = asyncio.create_task(
+            asyncio.to_thread(self.nlp_engine.clean_text, user_message)
+        )
+        history_task = self.db_manager.get_recent_messages(session, conversation_id, limit=3)  # Reduced from 5
         
-        # Get recent history
-        recent_messages = await self.db_manager.get_recent_messages(session, conversation_id, limit=5)
+        # Wait for both
+        cleaned_text, recent_messages = await asyncio.gather(
+            cleaned_text_task,
+            history_task
+        )
+        
+        # Quick text analysis (lightweight)
+        text_analysis = self.nlp_engine.analyze_text(cleaned_text)
         history = [{'role': msg.role, 'content': msg.content} for msg in reversed(recent_messages)]
         
         # Build agent input
@@ -54,7 +62,7 @@ class MessageProcessor:
             'analysis': text_analysis
         }
 
-        # RUN AGENTS
+        # RUN AGENTS (already optimized with timeouts)
         agent_results = await self.agent_coordinator.process_parallel(agent_input)
 
         # FIX: return a full dictionary (previously missing → caused NoneType)

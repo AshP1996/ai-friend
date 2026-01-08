@@ -26,7 +26,13 @@ RUN pip install --upgrade pip && \
 # ---------- App code ----------
 COPY . /app
 
+# ---------- Entrypoint script (ensure executable) ----------
+RUN chmod +x /app/docker-entrypoint.sh
+
 EXPOSE 8000
+
+# ---------- Use entrypoint for migrations ----------
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # ---------- Default command (API) ----------
 CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

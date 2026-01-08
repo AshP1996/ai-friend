@@ -1,225 +1,18 @@
-# from typing import Optional, Dict, Any
-# from datetime import datetime
-# import uuid
-# from sqlalchemy.ext.asyncio import AsyncSession
-
-# from database import DatabaseManager
-# from database.init_db import create_database, verify_database
-# from memory import MemoryManager
-# from voice import AudioManager
-# from .message_processor import *
-# from .response_generator import ResponseGenerator
-# from utils.logger import Logger
-# from config import settings, db_config
-
-
-# class AIFriend:
-#     def __init__(self):
-#         self.logger = Logger("AIFriend")
-
-#         # CORE MANAGERS
-#         self.db_manager = DatabaseManager()
-#         self.memory_manager = MemoryManager(self.db_manager)
-#         self.audio_manager = AudioManager()
-#         self.message_processor = MessageProcessor(self.db_manager, self.memory_manager)
-#         self.response_generator = ResponseGenerator()
-
-#         # SESSION DATA
-#         self.conversation_id = None
-#         self.session_id = str(uuid.uuid4())
-#         self.user_id = "default_user"
-#         self.is_initialized = False
-
-#     # INITIALIZE SYSTEM --------------------------------------------------------
-#     async def initialize(self):
-#         if self.is_initialized:
-#             return
-
-#         try:
-#             if not settings.database_path.exists():
-#                 self.logger.info("Creating database...")
-#                 await create_database()
-#             else:
-#                 if not await verify_database():
-#                     await create_database()
-
-#             db_config.initialize(settings.database_path)
-#             await db_config.create_tables()
-#             self.logger.info("Database initialized")
-
-#             # AUDIO INIT
-#             audio_ok = self.audio_manager.initialize()
-#             if not audio_ok:
-#                 self.logger.warning("Audio not available")
-
-#             self.is_initialized = True
-#             self.logger.info("AI Friend initialized")
-
-#         except Exception as e:
-#             self.logger.error(f"Init error: {e}")
-#             raise
-
-#     # START NEW CONVERSATION ---------------------------------------------------
-#     async def start_conversation(self, user_id: str = None):
-#         if user_id:
-#             self.user_id = user_id
-
-#         async for session in db_config.get_session():
-#             self.conversation_id = await self.db_manager.create_conversation(
-#                 session, self.user_id, self.session_id
-#             )
-#             await session.commit()
-
-#         self.logger.info(f"Started conversation {self.conversation_id}")
-#         return self.conversation_id
-
-#     # MAIN CHAT FUNCTION -------------------------------------------------------
-#     async def chat(self, user_message: str) -> Dict[str, Any]:
-#         """
-#         Main chat function.
-#         ALWAYS returns a valid response (never crashes).
-#         """
-#         if not self.conversation_id:
-#             await self.start_conversation()
-
-#         start_time = datetime.now()
-
-#         # SAFETY DEFAULT RESPONSE
-#         safe_response = {
-#             "response": "I'm here! Let's chat!",
-#             "emotion": {"emotion": "neutral", "confidence": 0.5},
-#             "processing_time": 0.0,
-#             "memories_used": 0,
-#         }
-
-#         try:
-#             async for session in db_config.get_session():
-
-#                 # ---- PROCESS USER MESSAGE ----
-#                 processed = await self.message_processor.process_message(
-#                     session, self.conversation_id, user_message
-#                 )
-
-#                 agent_results = processed.get("agent_results", {})
-#                 memories = processed.get("memories", [])
-#                 history = processed.get("history", [])
-
-#                 # Ensure history is list
-#                 if not isinstance(history, list):
-#                     history = []
-
-#                 # ---- BUILD CONTEXT ----
-#                 context = {
-#                     "emotion": agent_results.get("emotion", {}),
-#                     "user_name": self.user_id,
-#                     "memories": memories,
-#                 }
-
-#                 # ---- FINAL MESSAGES FOR AI ----
-#                 messages = history + [{"role": "user", "content": user_message}]
-
-#                 # ---- GENERATE RESPONSE ----
-#                 response_text = await self.response_generator.generate_response(
-#                     messages, context
-#                 )
-
-#                 # VALIDATE RESPONSE
-#                 if not response_text or not isinstance(response_text, str):
-#                     response_text = "I'm listening! Tell me more."
-
-#                 # ---- SAVE RESPONSE TO DB ----
-#                 from database.models import MessageModel
-#                 from config.constants import MessageType
-
-#                 emotion_data = agent_results.get("emotion", {})
-#                 emotion = (
-#                     emotion_data.get("emotion", "neutral")
-#                     if isinstance(emotion_data, dict)
-#                     else "neutral"
-#                 )
-
-#                 response_msg = MessageModel(
-#                     id=None,
-#                     conversation_id=self.conversation_id,
-#                     role=MessageType.ASSISTANT.value,
-#                     content=response_text,
-#                     emotion=emotion,
-#                     timestamp=datetime.now(),
-#                     processing_time=(datetime.now() - start_time).total_seconds(),
-#                     memory_tier=None,
-#                     importance_score=0.7,
-#                 )
-
-#                 await self.db_manager.save_message(session, response_msg)
-#                 await session.commit()
-
-#             # RETURN FINAL DATA
-#             return {
-#                 "response": response_text,
-#                 "emotion": agent_results.get(
-#                     "emotion", {"emotion": "neutral", "confidence": 0.5}
-#                 ),
-#                 "processing_time": (datetime.now() - start_time).total_seconds(),
-#                 "memories_used": len(memories),
-#             }
-
-#         except Exception as e:
-#             self.logger.error(f"Chat error: {e}")
-#             return safe_response
-
-#     # VOICE CHAT ---------------------------------------------------------------
-#     async def voice_chat(self, listen_timeout: int = 5) -> Optional[Dict[str, Any]]:
-#         user_message = await self.audio_manager.listen(timeout=listen_timeout)
-#         if not user_message:
-#             return None
-
-#         result = await self.chat(user_message)
-#         await self.audio_manager.speak(result.get("response", "I heard you!"))
-#         return result
-
-#     # GET SUMMARY --------------------------------------------------------------
-#     async def get_conversation_summary(self) -> Dict[str, Any]:
-#         if not self.conversation_id:
-#             return {
-#                 "conversation_id": None,
-#                 "stats": {"message_count": 0, "avg_processing_time": 0},
-#             }
-
-#         try:
-#             async for session in db_config.get_session():
-#                 from database.queries import Queries
-
-#                 stats = await Queries.get_conversation_stats(
-#                     session, self.conversation_id
-#                 )
-
-#                 return {
-#                     "conversation_id": self.conversation_id,
-#                     "session_id": self.session_id,
-#                     "user_id": self.user_id,
-#                     "stats": stats,
-#                 }
-
-#         except Exception as e:
-#             self.logger.error(f"Summary error: {e}")
-#             return {
-#                 "conversation_id": self.conversation_id,
-#                 "stats": {"message_count": 0, "avg_processing_time": 0},
-#             }
-
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 import uuid
 import asyncio
+import time
 
 from database import DatabaseManager
 from database.init_db import create_database, verify_database
 from memory import MemoryManager
 from voice.audio_manager import AudioManager
 
-
 from .message_processor import MessageProcessor
 from .response_generator import ResponseGenerator
+from .performance_monitor import perf_monitor, track_performance
+from .conversation_flow import ConversationFlowTracker
 
 from utils.logger import Logger
 from config import settings, db_config
@@ -254,6 +47,9 @@ class AIFriend:
             self.db_manager, self.memory_manager
         )
         self.response_generator = ResponseGenerator()
+        
+        # Advanced: Conversation flow tracking
+        self.flow_tracker = ConversationFlowTracker(max_history=10)
 
         # State
         self.initialized = False
@@ -315,6 +111,7 @@ class AIFriend:
     # =====================================================
     # CORE CHAT PIPELINE
     # =====================================================
+    @track_performance
     async def chat(self, user_message: str) -> Dict[str, Any]:
         if not self.initialized:
             await self.initialize()
@@ -322,12 +119,13 @@ class AIFriend:
         if not self.conversation_id:
             await self.start_conversation()
 
-        start_time = datetime.utcnow()
+        start_time = time.perf_counter()
 
         try:
+            # Optimized: Get session once and reuse
             async for session in db_config.get_session():
 
-                # ---- PROCESS MESSAGE ----
+                # ---- PROCESS MESSAGE (optimized with parallel operations) ----
                 processed = await self.message_processor.process_message(
                     session=session,
                     conversation_id=self.conversation_id,
@@ -349,20 +147,51 @@ class AIFriend:
 
 
 
-                # ---- CONTEXT ----
+                # ---- ADVANCED: CONVERSATION FLOW TRACKING ----
+                emotion_data = agent_results.get("emotion", {})
+                detected_emotion = emotion_data.get("emotion", EmotionType.NEUTRAL) if isinstance(emotion_data, dict) else str(emotion_data) if emotion_data else EmotionType.NEUTRAL
+                
+                # Track conversation flow
+                self.flow_tracker.track_message(user_message, detected_emotion)
+                flow_context = self.flow_tracker.get_conversation_context()
+                
+                # ADVANCED: Re-retrieve memories with semantic scoring if needed
+                # (memories from agent_results may not have semantic scoring)
+                if not memories or len(memories) == 0:
+                    conversation_context_for_memory = {
+                        'emotion': agent_results.get("emotion"),
+                        'current_topic': flow_context.get('current_topic'),
+                        'emotion_trend': flow_context.get('emotion_trend')
+                    }
+                    memories = await self.memory_manager.retrieve_context(
+                        session, self.conversation_id, user_message, conversation_context_for_memory
+                    )
+                
+                # ---- CONTEXT (Enhanced with conversation flow) ----
                 context = {
                     "emotion": agent_results.get("emotion"),
                     "memories": memories,
-                    "user": self.user_id
+                    "user": self.user_id,
+                    "user_name": self.user_id,  # Can be enhanced with actual name
+                    "conversation_flow": flow_context  # Advanced: conversation context
                 }
 
                 # ---- RESPONSE GENERATION ----
                 messages = history + [{"role": "user", "content": user_message}]
+                
+                # Debug: Log before generation
+                self.logger.info(f"💬 Generating response for: '{user_message[:100]}...'")
+                
                 response_text = await self.response_generator.generate_response(
                     messages, context
                 )
 
                 response_text = response_text or "I'm here with you."
+                
+                # Debug: Log after generation
+                self.logger.info(f"💬 Generated response: '{response_text[:100]}...'")
+                self.logger.info(f"   Response length: {len(response_text)} chars")
+                self.logger.info(f"   Word count: {len(response_text.split())} words")
 
                 # ---- EMOTION ----
                 emotion_data = agent_results.get("emotion", {})
@@ -370,27 +199,52 @@ class AIFriend:
                     "emotion", EmotionType.NEUTRAL
                 )
 
-                # ---- SAVE MESSAGE ----
+                # ---- SAVE MESSAGE WITH TRAINING DATA ----
                 from database.models import MessageModel
+                import json
 
+                processing_time = time.perf_counter() - start_time
+                
+                # Calculate quality score based on response characteristics
+                quality_score = self._calculate_quality_score(
+                    response_text, processing_time, emotion_data, memories
+                )
+                
+                # Prepare training data
+                agent_outputs_json = json.dumps(agent_results) if agent_results else None
+                memory_context_json = json.dumps([
+                    {"content": m.get("content", ""), "tier": m.get("tier", "")}
+                    for m in memories[:5]
+                ]) if memories else None
+                
                 msg = MessageModel(
                     id=None,
                     conversation_id=self.conversation_id,
                     role=MessageType.ASSISTANT,
                     content=response_text,
                     emotion=emotion,
-                    processing_time=(datetime.now() - start_time).total_seconds(),
+                    confidence=emotion_data.get("confidence", 0.5) if isinstance(emotion_data, dict) else 0.5,
+                    model_used=self.response_generator.ollama.model if self.response_generator.ollama.available else "default",
+                    processing_time=processing_time,
                     memory_tier=None,
-                    importance_score=0.7
+                    importance_score=0.7,
+                    # Training data
+                    agent_outputs=agent_outputs_json,
+                    memory_context=memory_context_json,
+                    quality_score=quality_score,
+                    training_flag=True  # Mark for training by default
                 )
 
                 await self.db_manager.save_message(session, msg)
                 await session.commit()
 
+            # Track performance
+            perf_monitor.track_response_time(processing_time)
+
             return {
                 "response": response_text,
                 "emotion": emotion_data,
-                "processing_time": msg.processing_time,
+                "processing_time": round(processing_time, 3),
                 "memories_used": len(memories),
                 "session_id": self.session_id
             }
@@ -481,3 +335,32 @@ class AIFriend:
         except Exception as e:
             self.logger.error(f"Summary failed: {e}")
             return {"stats": {}}
+    
+    def _calculate_quality_score(self, response: str, processing_time: float, 
+                                  emotion_data: Dict, memories: List) -> float:
+        """Calculate quality score for training data"""
+        score = 0.5  # Base score
+        
+        # Response length (optimal 20-100 words)
+        word_count = len(response.split())
+        if 20 <= word_count <= 100:
+            score += 0.1
+        elif word_count < 10:
+            score -= 0.1
+        
+        # Processing time (faster is better, but not too fast)
+        if 0.5 <= processing_time <= 3.0:
+            score += 0.1
+        elif processing_time > 5.0:
+            score -= 0.1
+        
+        # Emotion confidence
+        if isinstance(emotion_data, dict):
+            conf = emotion_data.get("confidence", 0.5)
+            score += (conf - 0.5) * 0.2
+        
+        # Memory usage (some context is good)
+        if 1 <= len(memories) <= 5:
+            score += 0.1
+        
+        return max(0.0, min(1.0, score))  # Clamp to 0-1

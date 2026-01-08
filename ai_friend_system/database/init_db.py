@@ -121,8 +121,12 @@ async def verify_database():
                 'memories',
                 'user_profiles',
                 'personal_info',
-                'agent_logs'
+                'agent_logs',
+                'personas'
             ]
+            
+            # Verify new columns exist (for migration)
+            logger.info("Verifying enhanced schema columns...")
             
             missing_tables = set(expected_tables) - set(tables)
             
