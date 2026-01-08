@@ -51,8 +51,6 @@
 #         self.buffer = b""
 #         self.partial_text = ""
 #         self.recognizer = sr.Recognizer()
-
-
 import json
 from vosk import Model, KaldiRecognizer
 from utils.logger import Logger
@@ -60,53 +58,44 @@ from utils.logger import Logger
 
 class SpeechToText:
     """
-    Gemini-style Streaming Speech-To-Text
-    -------------------------------------
-    ✔ Real partial text
-    ✔ Real final text
-    ✔ Low latency
-    ✔ Offline & free
+    Streaming STT (Vosk)
+    PCM: 16-bit, 16kHz, mono
     """
 
     def __init__(self):
         self.logger = Logger("SpeechToText")
-
-        # 🔹 Load Vosk model
+        self.logger.info("🧠 Loading Vosk model...")
         self.model = Model("vosk-model-small-en-us-0.15")
+        self._create_recognizer()
+        self.logger.info("✅ STT ready")
+
+    def _create_recognizer(self):
         self.recognizer = KaldiRecognizer(self.model, 16000)
         self.recognizer.SetWords(True)
+        self.logger.debug("🔁 Recognizer created")
 
-    # =====================================================
-    # REAL-TIME PCM STREAMING (WebSocket)
-    # =====================================================
     def stream(self, pcm: bytes) -> dict:
-        """
-        Receives 16-bit PCM @ 16kHz
-        Returns partial + final results
-        """
-
         if self.recognizer.AcceptWaveform(pcm):
             result = json.loads(self.recognizer.Result())
             text = result.get("text", "").strip()
 
             if text:
-                self.logger.info(f"Final: {text}")
+                self.logger.info(f"📝 FINAL STT: {text}")
                 return {"partial": None, "final": text}
 
+            self.logger.debug("🟡 Final STT but empty")
             return {"partial": None, "final": None}
 
-        else:
-            result = json.loads(self.recognizer.PartialResult())
-            partial = result.get("partial", "").strip()
+        partial = json.loads(
+            self.recognizer.PartialResult()
+        ).get("partial", "").strip()
 
-            if partial:
-                return {"partial": partial, "final": None}
+        if partial:
+            self.logger.debug(f"✏️ PARTIAL STT: {partial}")
+            return {"partial": partial, "final": None}
 
-            return {"partial": None, "final": None}
+        return {"partial": None, "final": None}
 
-    # =====================================================
-    # RESET (on disconnect)
-    # =====================================================
     def reset(self):
-        self.recognizer = KaldiRecognizer(self.model, 16000)
-        self.recognizer.SetWords(True)
+        self.logger.info("🔄 Resetting recognizer")
+        self._create_recognizer()

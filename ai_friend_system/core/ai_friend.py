@@ -215,7 +215,8 @@ import asyncio
 from database import DatabaseManager
 from database.init_db import create_database, verify_database
 from memory import MemoryManager
-from voice import AudioManager
+from voice.audio_manager import AudioManager
+
 
 from .message_processor import MessageProcessor
 from .response_generator import ResponseGenerator
@@ -278,9 +279,11 @@ class AIFriend:
             await db_config.create_tables()
 
             # ---- AUDIO ----
-            audio_ok = self.audio_manager.initialize()
-            if not audio_ok:
-                self.logger.warning("Voice system disabled")
+            # audio_ok = self.audio_manager.initialize()
+            # if not audio_ok:
+            #     self.logger.warning("Voice system disabled")
+
+            self.logger.info("Voice system available (WebSocket mode)")
 
             self.initialized = True
             self.logger.info("AI Friend ready")
@@ -406,52 +409,52 @@ class AIFriend:
     # =====================================================
     # VOICE CHAT (SYNC + CLI SAFE)
     # =====================================================
-    async def voice_chat(
-        self,
-        listen_timeout: Optional[int] = None,
-        timeout: Optional[int] = None
-    ) -> Optional[Dict[str, Any]]:
-        """
-        Voice interaction handler
+    # async def voice_chat(
+    #     self,
+    #     listen_timeout: Optional[int] = None,
+    #     timeout: Optional[int] = None
+    # ) -> Optional[Dict[str, Any]]:
+    #     """
+    #     Voice interaction handler
 
-        Supports both:
-        - listen_timeout (CLI / future API)
-        - timeout (backward compatibility)
+    #     Supports both:
+    #     - listen_timeout (CLI / future API)
+    #     - timeout (backward compatibility)
 
-        :param listen_timeout: preferred listen timeout
-        :param timeout: legacy timeout
-        """
+    #     :param listen_timeout: preferred listen timeout
+    #     :param timeout: legacy timeout
+    #     """
 
-        if not self.audio_manager:
-            self.logger.warning("Audio manager not available")
-            return None
+    #     if not self.audio_manager:
+    #         self.logger.warning("Audio manager not available")
+    #         return None
 
-        # Resolve timeout safely
-        final_timeout = listen_timeout if listen_timeout is not None else timeout
+    #     # Resolve timeout safely
+    #     final_timeout = listen_timeout if listen_timeout is not None else timeout
 
-        try:
-            self.logger.info("🎤 Listening for voice input...")
+    #     try:
+    #         self.logger.info("🎤 Listening for voice input...")
 
-            # Audio input
-            user_message = await self.audio_manager.listen(final_timeout)
+    #         # Audio input
+    #         user_message = await self.audio_manager.listen(final_timeout)
 
-            if not user_message:
-                self.logger.info("No voice input detected")
-                return None
+    #         if not user_message:
+    #             self.logger.info("No voice input detected")
+    #             return None
 
-            self.logger.info(f"🗣️ Heard: {user_message}")
+    #         self.logger.info(f"🗣️ Heard: {user_message}")
 
-            # Core chat
-            result = await self.chat(user_message)
+    #         # Core chat
+    #         result = await self.chat(user_message)
 
-            # Speak response
-            await self.audio_manager.speak(result["response"])
+    #         # Speak response
+    #         await self.audio_manager.speak(result["response"])
 
-            return result
+    #         return result
 
-        except Exception as e:
-            self.logger.error(f"Voice chat failed: {e}")
-            return None
+    #     except Exception as e:
+    #         self.logger.error(f"Voice chat failed: {e}")
+    #         return None
 
 
     # =====================================================

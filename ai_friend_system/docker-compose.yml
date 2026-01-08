@@ -1,55 +1,84 @@
-version: '3.8'
+version: "3.9"
 
 services:
   redis:
     image: redis:7-alpine
     container_name: ai_friend_redis
     ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
+      - "6380:6379"
+    restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  celery_worker:
+  api:
     build: .
-    container_name: ai_friend_celery
-    command: celery -A tasks.celery_tasks worker --loglevel=info
+    container_name: ai_friend_api
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
     volumes:
       - .:/app
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_VOICE=false
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  celery_worker:
+    build: .
+    container_name: ai_friend_celery_worker
+    command: celery -A tasks.celery_tasks worker --loglevel=info --concurrency=2
+    volumes:
+      - .:/app
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          memory: 4g
 
   celery_beat:
     build: .
-    container_name: ai_friend_beat
+    container_name: ai_friend_celery_beat
     command: celery -A tasks.celery_tasks beat --loglevel=info
     volumes:
       - .:/app
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   flower:
-    build: .
+    image: mher/flower:2.0
     container_name: ai_friend_flower
-    command: celery -A tasks.celery_tasks flower --port=5555
+    command: >
+      celery flower
+      --broker=redis://redis:6379/0
+      --port=5555
+      --address=0.0.0.0
     ports:
       - "5555:5555"
     depends_on:
-      - redis
-      - celery_worker
+      redis:
+        condition: service_healthy
     environment:
       - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
 
-volumes:
-  redis_data:
+

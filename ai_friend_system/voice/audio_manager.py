@@ -1,141 +1,115 @@
-# from typing import Optional
-# from .microphone_detector import MicrophoneDetector
-# from .speech_to_text import SpeechToText
-# from .text_to_speech import TextToSpeech
-# from .audio_processor import AudioProcessor
-# from utils.logger import Logger
-# import asyncio
-
 # class AudioManager:
+#     """
+#     Central Voice Controller
+#     - Receives PCM stream
+#     - Produces partial & final STT
+#     - Generates TTS audio bytes
+#     """
+
 #     def __init__(self):
-#         self.mic_detector = MicrophoneDetector()
+#         self.logger = Logger("AudioManager")
 #         self.stt = SpeechToText()
 #         self.tts = TextToSpeech()
-#         self.processor = AudioProcessor()
-#         self.logger = Logger("AudioManager")
-#         self.is_listening = False
-    
-#     def initialize(self) -> bool:
-#         devices = self.mic_detector.detect_microphones()
-#         if not devices:
-#             self.logger.error("No microphones found. Voice features disabled.")
-#             return False
-        
-#         self.logger.info(f"Audio system initialized with {len(devices)} device(s)")
-#         return True
-    
-#     async def listen(self, timeout: int = 5) -> Optional[str]:
-#         if self.is_listening:
-#             self.logger.warning("Already listening")
-#             return None
-        
-#         self.is_listening = True
-#         try:
-#             device = self.mic_detector.get_default_device()
-#             if not device:
-#                 return None
-            
-#             text = await self.stt.listen_and_convert(device['index'], timeout)
-#             return text
-#         finally:
-#             self.is_listening = False
-    
-#     async def speak(self, text: str):
-#         await self.tts.speak(text)
-    
-#     def get_available_devices(self):
-#         return self.mic_detector.available_devices
+#         self.active = True
 
-from typing import Optional
-import asyncio
+#     # ✅ ADD THIS
+#     def initialize(self):
+#         """
+#         Compatibility init hook.
+#         Streaming STT initializes lazily.
+#         """
+#         self.logger.info("🎧 AudioManager initialized")
 
-from .microphone_detector import MicrophoneDetector
-from .speech_to_text import SpeechToText
-from .text_to_speech import TextToSpeech
-from .audio_processor import AudioProcessor
+#     # ===============================
+#     # PCM STREAM (WebSocket)
+#     # ===============================
+#     # def process_pcm(self, pcm_bytes: bytes) -> Dict:
+#     #     self.logger.info(f"🎧 PCM chunk received: {len(pcm_bytes)} bytes")
+
+#     #     if not self.active:
+#     #         return {"partial": None, "final": None}
+
+#     #     return self.stt.stream(pcm_bytes)
+
+#     def process_pcm(self, pcm_bytes: bytes) -> Dict:
+#         self.logger.warning(f"🎧 PCM RECEIVED: {len(pcm_bytes)} bytes")
+#         return self.stt.stream(pcm_bytes)
+#     # ===============================
+#     # TEXT → SPEECH
+#     # ===============================
+#     async def text_to_speech(self, text: str, emotion: str = "neutral") -> bytes:
+#         if not text:
+#             return b""
+
+#         return await self.tts.generate_audio_bytes(text, emotion)
+
+#     # ===============================
+#     # RESET / SHUTDOWN
+#     # ===============================
+#     def reset(self):
+#         self.stt.reset()
+
+#     def shutdown(self):
+#         self.active = False
+#         self.reset()
+from typing import Dict
 from utils.logger import Logger
+from voice.speech_to_text import SpeechToText
+from voice.text_to_speech import TextToSpeech
 
 
 class AudioManager:
     def __init__(self):
-        self.mic_detector = MicrophoneDetector()
+        self.logger = Logger("AudioManager")
         self.stt = SpeechToText()
         self.tts = TextToSpeech()
-        self.processor = AudioProcessor()
-        self.logger = Logger("AudioManager")
-        self.is_listening: bool = False
-        self.initialized: bool = False
+        self.active = True
+        self.is_speaking = False
 
-    # =====================================================
-    # INIT
-    # =====================================================
-    def initialize(self) -> bool:
-        devices = self.mic_detector.detect_microphones()
-        if not devices:
-            self.logger.error("No microphones found")
-            return False
-        for d in devices:
-            if "analog" in d["name"].lower():
-                self.mic_detector.default_device = d
-                break
-        self.initialized = True
-        self.logger.info(f"Audio system initialized with {len(devices)} device(s)")
-        return True
-    # =====================================================
-    # LISTEN
-    # =====================================================
-    async def listen(self, timeout: Optional[int] = 5) -> Optional[str]:
-        if not self.initialized:
-            self.logger.warning("AudioManager not initialized")
-            return None
-        if self.is_listening:
-            self.logger.warning("Already listening")
-            return None
-        self.is_listening = True
-        try:
-            device = self.mic_detector.get_default_device()
-            if not device:
-                self.logger.error("No default microphone")
-                return None
-            if self.tts.is_speaking:
-                self.logger.info("Interrupting TTS for user speech")
-                self.tts.is_speaking = False
-            self.logger.info("🎤 Listening...")
-            text = await asyncio.wait_for(
-                self.stt.listen_and_convert(device_index=device["index"], timeout=timeout),
-                timeout=(timeout + 1) if timeout else None
-            )
-            if text:
-                self.logger.info(f"🗣️ Transcribed: {text}")
-            return text
-        except asyncio.TimeoutError:
-            self.logger.info("Listening timeout reached")
-            return None
-        except Exception as e:
-            self.logger.error(f"Audio listen failed: {e}")
-            return None
-        finally:
-            self.is_listening = False
-    # =====================================================
-    # SPEAK
-    # =====================================================
-    async def speak(self, text: str, emotion: str = "neutral"):
-        if not self.initialized or not text:
-            return
-        try:
-            self.logger.info("🔊 Speaking...")
-            await self.tts.speak(text, emotion)
-        except Exception as e:
-            self.logger.error(f"TTS failed: {e}")
+        self.logger.info("🆕 AudioManager created")
 
+    def initialize(self):
+        self.logger.info("🎧 AudioManager initialized")
 
-    def process_pcm(self, pcm_bytes: bytes):
+    # ===============================
+    # PCM STREAM → STT
+    # ===============================
+    def process_pcm(self, pcm_bytes: bytes) -> Dict:
+        if not self.active:
+            self.logger.warning("⛔ Ignoring PCM: manager inactive")
+            return {"partial": None, "final": None}
+
+        if self.is_speaking:
+            self.logger.debug("🔇 Ignoring PCM: AI is speaking")
+            return {"partial": None, "final": None}
+
+        self.logger.debug(f"🎙️ PCM received: {len(pcm_bytes)} bytes")
         return self.stt.stream(pcm_bytes)
 
-    def shutdown(self):
-        self.logger.info("Shutting down audio system")
-        self.stt.reset()
-        self.initialized = False
+    # ===============================
+    # TEXT → SPEECH
+    # ===============================
+    async def text_to_speech(self, text: str, emotion: str = "neutral") -> bytes:
+        if not text:
+            self.logger.warning("⚠️ Empty TTS request")
+            return b""
 
-    def get_available_devices(self):
-        return self.mic_detector.available_devices
+        self.is_speaking = True
+        self.logger.info(f"🗣️ TTS started | emotion={emotion}")
+
+        try:
+            audio = await self.tts.generate_audio_bytes(text, emotion)
+            self.logger.info(f"🔊 TTS audio generated ({len(audio)} bytes)")
+            return audio
+        finally:
+            self.is_speaking = False
+            self.logger.info("🎧 TTS finished, listening resumed")
+
+    def reset(self):
+        self.logger.info("🔄 STT reset")
+        self.stt.reset()
+
+    def shutdown(self):
+        self.logger.info("🧹 AudioManager shutdown")
+        self.active = False
+        self.reset()

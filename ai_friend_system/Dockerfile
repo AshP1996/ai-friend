@@ -1,20 +1,32 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /app
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \\
-    portaudio19-dev \\
-    python3-pyaudio \\
-    redis-tools \\
+# ---------- System dependencies ----------
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    git \
+    curl \
+    ffmpeg \
+    portaudio19-dev \
+    redis-tools \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ---------- Python dependencies ----------
+COPY requirements.txt /app/requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --upgrade ollama
 
-# Copy application
-COPY . .
+# ---------- App code ----------
+COPY . /app
 
-# Run application
+EXPOSE 8000
+
+# ---------- Default command (API) ----------
 CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
